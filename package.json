@@ -1,7 +1,7 @@
 {
   "name": "dev-center",
   "version": "0.1.0",
-  "homepage": ".",
+  "homepage": "./live-api-openapi-frontweb",
   "dependencies": {
     "@emotion/react": "^11.10.4",
     "@mantine/core": "^5.5.4",
