@@ -1,0 +1,50 @@
+{
+  "common": {
+    "save": "Save",
+    "edit": "Edit",
+    "cancel": "Cancel",
+    "delete": "Delete",
+    "yes": "Yes",
+    "no": "No"
+  },
+  "landing": {
+    "title": "title translated"
+  },
+  "pages": {
+    "document": "Docs",
+    "api": "APIs",
+    "support": "Support",
+    "forum": "Forum",
+    "app": "Apps"
+  },
+  "nexon": {
+    "appName": "Nexon Developer Center",
+    "adminPage": "Admin Page",
+    "english": "English",
+    "korean": "Korean",
+    "homePage": "Homepage"
+  },
+  "app": {
+    "table": {
+      "appName": "Application name",
+      "appUrl": "Application URL",
+      "gameName": "Game",
+      "service": "API key type",
+      "token": "API key status"
+    },
+    "myPage": {
+      "title": "My page"
+    },
+    "application": {
+      "pageSubtitle": "Take a look around and enjoy the services created by developers who love Nexon games",
+      "gotoService": "Go to service"
+    },
+    "support": {
+      "TOS": "Terms of service",
+      "FAQ": "FAQ",
+      "notice": "Notice",
+      "FAQsubtitle": "Check out our frequently asked questions.",
+      "noticeSubtitle": "Check the announcements in the Nexon Developer Center."
+    }
+  }
+}

@@ -1,0 +1,43 @@
+@keyframes slide-in {
+  0% {
+    transform: translateY(100px);
+    opacity: 0;
+    display: none;
+  }
+  75% {
+    display: block;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+.side {
+  opacity: 0;
+  animation: slide-in 0.8s linear forwards;
+  cursor: pointer;
+}
+.side:nth-of-type(3) {
+  animation-delay: 0.2s;
+}
+.side:nth-of-type(4) {
+  animation-delay: 0.4s;
+}
+@keyframes fade {
+  0% {
+    transform: translateX(20%);
+    opacity: 0;
+    display: none;
+  }
+
+  75% {
+    display: block;
+  }
+  100% {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+.main_content {
+  opacity: 0;
+  animation: fade 1s linear forwards;
+}

@@ -1,0 +1,11 @@
+version: '3.7'
+services:
+  frontend:
+    build: .
+    container_name: live-api-openapi-frontweb
+    environment:
+      REACT_APP_BASE_URL: http://3.1.107.165:3000
+      NODE_ENV: production
+      # PUBLIC_URL: https://sandbox-static.api.nexon.com/live-api-openapi-frontweb
+    ports:
+      - '80:80'

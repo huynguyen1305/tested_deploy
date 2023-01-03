@@ -1,0 +1,29 @@
+{
+  "general": {
+    "save": "저장",
+    "edit": "수정",
+    "cancel": "취소",
+    "delete": "삭제하기",
+    "yes": "예",
+    "no": "아니"
+  },
+
+  "nexon": {
+    "appName": "Nexon Developer Center",
+    "adminPage": "Admin Page",
+    "english": "English",
+    "korean": "Korean",
+    "homePage": "Homepage"
+  },
+  "application": {
+    "pageSubtitle": "넥슨 게임을 사랑하는 개발자들이 만든 서비스를 둘러보고 즐겨보세요.",
+    "gotoService": "서비스로 이동"
+  },
+  "support": {
+    "TOS": "서비스 약관",
+    "FAQ": "자주하는 질문",
+    "notice": "알아채다",
+    "FAQsubtitle": "자주 묻는 질문을 확인하세요.",
+    "noticeSubtitle": "넥슨 개발자 센터에서 공지사항을 확인하세요."
+  }
+}

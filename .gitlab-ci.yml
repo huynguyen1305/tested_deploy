@@ -1,0 +1,336 @@
+.docker_job_template: &docker_job
+  before_script:
+    - $(aws ecr get-login --no-include-email --region ap-northeast-1)
+    - echo BRANCH=$CI_COMMIT_REF_NAME
+
+    # set RUNDECK_URL
+    - if [ "$CI_COMMIT_REF_NAME" == "master" ]; then RUNDECK_URL="${RUNDECK_LIVE_URL}"; else RUNDECK_URL="${RUNDECK_DEV_URL}"; fi
+    - echo RUNDECK_URL=$RUNDECK_URL
+
+    # set PROJECT_NAME
+    - if [ ! -z "$PROJECT_NEW_NAME" ]; then CURRENT_PROJECT_NAME="${PROJECT_NEW_NAME}"; else CURRENT_PROJECT_NAME="${CI_PROJECT_NAME}"; fi
+    - echo PROJECT_NAME=$CURRENT_PROJECT_NAME
+
+    # set IMG_NAME
+    - IMG_NAME="${CURRENT_PROJECT_NAME}"
+    - echo IMG_NAME=$IMG_NAME
+
+    # set DEPLOY_IMAGE_TAG
+    - DEPLOY_IMAGE_TAG="${REGISTRY}/${IMG_NAME}:${CI_COMMIT_SHA}"
+    - echo DEPLOY_IMAGE_TAG=$DEPLOY_IMAGE_TAG
+
+      # set REF_NAME (publish tag)
+    - REPLACED_CI_COMMIT_REF_NAME=$(echo $CI_COMMIT_REF_NAME | sed -e 's/\//\_/g')
+    - if [ "$CI_COMMIT_REF_NAME" == "master" ]; then REF_NAME="latest"; else REF_NAME="${REPLACED_CI_COMMIT_REF_NAME}"; fi
+    - echo REF_NAME=$REF_NAME
+
+    # set PUBLISH_DEPLOY_IMAGE_TAG
+    - PUBLISH_DEPLOY_IMAGE_TAG="$REGISTRY/$IMG_NAME:$REF_NAME"
+    - echo PUBLISH_DEPLOY_IMAGE_TAG=$PUBLISH_DEPLOY_IMAGE_TAG
+
+  tags:
+    - live-api
+
+.loadtest_template: &loadtest_job
+  before_script:
+    # set PROJECT_NAME
+    - if [ ! -z "$PROJECT_NEW_NAME" ]; then CURRENT_PROJECT_NAME="${PROJECT_NEW_NAME}"; else CURRENT_PROJECT_NAME="${CI_PROJECT_NAME}"; fi
+    - echo CURRENT_PROJECT_NAME=$CURRENT_PROJECT_NAME
+
+    # set shell path
+    - LOADTEST_EXECUTE_SH="./loadtests/${CURRENT_PROJECT_NAME}/loadtest.sh"
+    - echo LOADTEST_EXECUTE_SH=$LOADTEST_EXECUTE_SH
+
+    # fetch the latest script of live-api-loadtest
+    - git submodule update --remote --recursive
+  tags:
+    - live-api
+
+stages:
+  - build_image
+  - push
+  - canary_create
+  - canary_delete
+  - add_publish_tag
+  - deploy
+  - loadtest
+
+variables:
+  REGISTRY: "947146334561.dkr.ecr.ap-northeast-1.amazonaws.com"
+  RUNDECK_DEV_URL: "http://13.124.160.195:4440/api/36/job/eeee9c26-0dd3-4bbe-944d-e46608bee14c/run"
+  RUNDECK_LIVE_URL: "http://13.124.160.195:4440/api/36/job/5cc80d36-cdb3-4429-8904-6198a2919000/run"
+  RUNDECK_CANARY_CREATE_URL: "http://13.124.160.195:4440/api/36/job/9d62646a-c85d-45e4-88ef-28a094579157/run"
+  RUNDECK_CANARY_DELETE_URL: "http://13.124.160.195:4440/api/36/job/af31fbc5-1cb2-4390-bfcd-8d135461e103/run"
+  GIT_SUBMODULE_STRATEGY: recursive
+
+.build:
+  script:
+    - docker build -t $DEPLOY_IMAGE_TAG -f Dockerfile .
+    - echo docker build $DEPLOY_IMAGE_TAG
+
+build:
+  <<: *docker_job
+  stage: build_image
+  extends: .build
+  only:
+    refs:
+      - develop
+      - master
+
+push:
+  <<: *docker_job
+  stage: push
+  script:
+    - docker push $DEPLOY_IMAGE_TAG
+    - echo docker push $DEPLOY_IMAGE_TAG
+
+    # delete local image
+    - docker rmi -f $DEPLOY_IMAGE_TAG
+    - echo docker rmi -f $DEPLOY_IMAGE_TAG
+  only:
+    refs:
+      - develop
+      - master
+
+add-publish-tag-dev:
+  <<: *docker_job
+  stage: add_publish_tag
+  script:
+    - docker pull $DEPLOY_IMAGE_TAG
+    - docker tag $DEPLOY_IMAGE_TAG $PUBLISH_DEPLOY_IMAGE_TAG
+    - docker push $PUBLISH_DEPLOY_IMAGE_TAG
+    - echo push image -$PUBLISH_DEPLOY_IMAGE_TAG
+
+    # delete local image
+    - docker rmi -f $PUBLISH_DEPLOY_IMAGE_TAG
+    - echo docker rmi -f $PUBLISH_DEPLOY_IMAGE_TAG
+
+  only:
+    refs:
+      - develop
+  allow_failure: false
+
+add-publish-tag-prd:
+  <<: *docker_job
+  stage: add_publish_tag
+  script:
+    - docker pull $DEPLOY_IMAGE_TAG
+    - docker tag $DEPLOY_IMAGE_TAG $PUBLISH_DEPLOY_IMAGE_TAG
+    - docker push $PUBLISH_DEPLOY_IMAGE_TAG
+    - echo push image -$PUBLISH_DEPLOY_IMAGE_TAG
+
+    # delete local image
+    - docker rmi -f $PUBLISH_DEPLOY_IMAGE_TAG
+    - echo docker rmi -f $PUBLISH_DEPLOY_IMAGE_TAG
+
+  only:
+    refs:
+      - master
+  when: manual
+  allow_failure: false
+
+deploy-dev:
+  <<: *docker_job
+  stage: deploy
+  script:
+    - echo RUNDECK_KEY=$RUNDECK_KEY
+    - >
+      echo curl ${RUNDECK_URL}
+      -H "Content-Type: application/json"
+      -H "Accept: application/json"
+      -H "X-Rundeck-Auth-Token: ${RUNDECK_KEY}"
+      -w %{http_code}
+      -d '{
+            "loglevel":"info",
+            "options": {
+              "NAMESPACE": "'"$CURRENT_PROJECT_NAME"'",
+              "RESOURCE_TYPE": "deployments",
+              "RESOURCE_NAME": "'"$CURRENT_PROJECT_NAME"'-liveapi",
+              "CONTAINER_NAME": "'"$CURRENT_PROJECT_NAME"'",
+              "IMAGE": "'"$DEPLOY_IMAGE_TAG"'"
+            }
+      }'
+    - >
+      runResult=$(curl ${RUNDECK_URL}
+      -H "Content-Type: application/json"
+      -H "Accept: application/json"
+      -H "X-Rundeck-Auth-Token: ${RUNDECK_KEY}"
+      -w %{http_code}
+      -d '{
+            "loglevel":"info",
+            "options": {
+              "NAMESPACE": "'"$CURRENT_PROJECT_NAME"'",
+              "RESOURCE_TYPE": "deployments",
+              "RESOURCE_NAME": "'"$CURRENT_PROJECT_NAME"'-liveapi",
+              "CONTAINER_NAME": "'"$CURRENT_PROJECT_NAME"'",
+              "IMAGE": "'"$DEPLOY_IMAGE_TAG"'"
+            }
+      }')
+    - echo $runResult
+    - httpStatusCode=$(echo $runResult | sed -E 's/\{.*\}//g')
+    - echo $httpStatusCode
+    - >
+      if [ $httpStatusCode = "200" ]; then
+        echo "Deployment is started successfully"               
+      else
+        echo "Deployment is failed. HTTP Status Code is $httpStatusCode."
+        exit 1
+      fi
+  only:
+    refs:
+      - develop
+
+create-canary:
+  <<: *docker_job
+  stage: canary_create
+  script:
+    - echo RUNDECK_KEY=$RUNDECK_KEY
+    - >
+      echo curl ${RUNDECK_CANARY_CREATE_URL}
+      -H "Content-Type: application/json"
+      -H "Accept: application/json"
+      -H "X-Rundeck-Auth-Token: ${RUNDECK_KEY}"
+      -w %{http_code}
+      -d '{
+            "loglevel":"info",
+            "options": {
+              "NAMESPACE": "'"$CURRENT_PROJECT_NAME"'",
+              "DEPLOYMENT_NAME": "'"$CURRENT_PROJECT_NAME"'-liveapi",
+              "CONTAINER_IMAGE": "'"$DEPLOY_IMAGE_TAG"'"
+            }
+      }'
+    - >
+      runResult=$(curl ${RUNDECK_CANARY_CREATE_URL}
+      -H "Content-Type: application/json"
+      -H "Accept: application/json"
+      -H "X-Rundeck-Auth-Token: ${RUNDECK_KEY}"
+      -w %{http_code}
+      -d '{
+            "loglevel":"info",
+            "options": {
+              "NAMESPACE": "'"$CURRENT_PROJECT_NAME"'",
+              "DEPLOYMENT_NAME": "'"$CURRENT_PROJECT_NAME"'-liveapi",
+              "CONTAINER_IMAGE": "'"$DEPLOY_IMAGE_TAG"'"
+            }
+      }')
+    - echo $runResult
+    - httpStatusCode=$(echo $runResult | sed -E 's/\{.*\}//g')
+    - echo $httpStatusCode
+    - >
+      if [ $httpStatusCode = "200" ]; then
+        echo "Canary Deployment is created successfully"
+      else
+        echo "Canary Deployment creation is failed. HTTP Status Code is $httpStatusCode."
+        exit 1
+      fi
+  only:
+    refs:
+      - master
+  when: manual
+
+delete-canary:
+  <<: *docker_job
+  stage: canary_delete
+  script:
+    - echo RUNDECK_KEY=$RUNDECK_KEY
+    - >
+      echo curl ${RUNDECK_CANARY_DELETE_URL}
+      -H "Content-Type: application/json"
+      -H "Accept: application/json"
+      -H "X-Rundeck-Auth-Token: ${RUNDECK_KEY}"
+      -w %{http_code}
+      -d '{
+            "loglevel":"info",
+            "options": {
+              "NAMESPACE": "'"$CURRENT_PROJECT_NAME"'",
+              "DEPLOYMENT_NAME": "'"$CURRENT_PROJECT_NAME"'-liveapi"
+            }
+      }'
+    - >
+      runResult=$(curl ${RUNDECK_CANARY_DELETE_URL}
+      -H "Content-Type: application/json"
+      -H "Accept: application/json"
+      -H "X-Rundeck-Auth-Token: ${RUNDECK_KEY}"
+      -w %{http_code}
+      -d '{
+            "loglevel":"info",
+            "options": {
+              "NAMESPACE": "'"$CURRENT_PROJECT_NAME"'",
+              "DEPLOYMENT_NAME": "'"$CURRENT_PROJECT_NAME"'-liveapi"
+            }
+      }')
+    - echo $runResult
+    - httpStatusCode=$(echo $runResult | sed -E 's/\{.*\}//g')
+    - echo $httpStatusCode
+    - >
+      if [ $httpStatusCode = "200" ]; then
+        echo "Canary Deployment is deleted successfully"
+      else
+        echo "Canary Deployment deletion is failed. HTTP Status Code is $httpStatusCode."
+        exit 1
+      fi
+  only:
+    refs:
+      - master
+  when: manual
+deploy-live:
+  <<: *docker_job
+  stage: deploy
+  script:
+    - echo RUNDECK_KEY=$RUNDECK_KEY
+    - >
+      echo curl ${RUNDECK_URL}
+      -H "Content-Type: application/json"
+      -H "Accept: application/json"
+      -H "X-Rundeck-Auth-Token: ${RUNDECK_KEY}"
+      -w %{http_code}
+      -d '{
+            "loglevel":"info",
+            "options": {
+              "NAMESPACE": "'"$CURRENT_PROJECT_NAME"'",
+              "RESOURCE_TYPE": "deployments",
+              "RESOURCE_NAME": "'"$CURRENT_PROJECT_NAME"'-liveapi",
+              "CONTAINER_NAME": "'"$CURRENT_PROJECT_NAME"'",
+              "IMAGE": "'"$DEPLOY_IMAGE_TAG"'"
+            }
+      }'
+    - >
+      runResult=$(curl ${RUNDECK_URL}
+      -H "Content-Type: application/json"
+      -H "Accept: application/json"
+      -H "X-Rundeck-Auth-Token: ${RUNDECK_KEY}"
+      -w %{http_code}
+      -d '{
+            "loglevel":"info",
+            "options": {
+              "NAMESPACE": "'"$CURRENT_PROJECT_NAME"'",
+              "RESOURCE_TYPE": "deployments",
+              "RESOURCE_NAME": "'"$CURRENT_PROJECT_NAME"'-liveapi",
+              "CONTAINER_NAME": "'"$CURRENT_PROJECT_NAME"'",
+              "IMAGE": "'"$DEPLOY_IMAGE_TAG"'"
+            }
+      }')
+    - echo $runResult
+    - httpStatusCode=$(echo $runResult | sed -E 's/\{.*\}//g')
+    - echo $httpStatusCode
+    - >
+      if [ $httpStatusCode = "200" ]; then
+        echo "Deployment is started successfully"
+      else
+        echo "Deployment is failed. HTTP Status Code is $httpStatusCode."
+        exit 1
+      fi
+  only:
+    refs:
+      - master
+
+loadtest:
+  <<: *loadtest_job
+  stage: loadtest
+  script:
+    - echo "bash -x $LOADTEST_EXECUTE_SH ${CURRENT_PROJECT_NAME}"
+    - bash -x $LOADTEST_EXECUTE_SH ${CURRENT_PROJECT_NAME}
+  only:
+    refs:
+      - develop
+  when: manual
